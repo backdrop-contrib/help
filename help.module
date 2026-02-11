@@ -45,7 +45,30 @@ function help_menu() {
  * Page callback: list available module help topics.
  */
 function help_main_page() {
-  $output = '<p>' . t('Help topics come from two places: modules that implement hook_help(), and modules that ship a README (README.md or README.txt). See the !help_page for details.', array('!help_page' => l(t('Help module page'), 'admin/help/help'))) . '</p>';
+  $steps = array(
+    t('<strong>Configure your site.</strong> Visit the !admin_link to customize and configure all aspects of your site.', array('!admin_link' => l(t('administration section'), 'admin'))),
+    t('<strong>Enable additional functionality.</strong> Go to the !modules_link to turn on features you need. Find more modules at the !backdrop_modules_link.', array(
+      '!modules_link' => l(t('module list'), 'admin/modules'),
+      '!backdrop_modules_link' => l(t('Backdrop modules directory'), 'https://backdropcms.org/modules', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))),
+    )),
+    t('<strong>Customize the look and feel.</strong> Visit the !themes_link to switch or configure themes. Browse additional themes in the !backdrop_themes_link.', array(
+      '!themes_link' => l(t('themes section'), 'admin/appearance'),
+      '!backdrop_themes_link' => l(t('Backdrop themes directory'), 'https://backdropcms.org/themes', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))),
+    )),
+    t('<strong>Start posting content.</strong> Use the !content_link to add new content types and entries.', array('!content_link' => l(t('Add content page'), 'node/add'))),
+  );
+
+  $intro = '<div class="fieldset-wrapper">' . t('Follow these steps to set up and start using your site:') . '</div>';
+  $intro .= theme('item_list', array('items' => $steps, 'type' => 'ol'));
+  $intro .= '<div class="fieldset-wrapper">' . t('For more information, read the topics below or visit the !docs_link. You can also ask questions in the !forum_link or explore other !support_link.', array(
+    '!docs_link' => l(t('Backdrop user guide'), 'https://backdropcms.org/user-guide', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))),
+    '!forum_link' => l(t('Backdrop forum'), 'https://forum.backdropcms.org', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))),
+    '!support_link' => l(t('support options'), 'https://backdropcms.org/support', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))),
+  )) . '</div>';
+
+  $output = '<fieldset class="help-getting-started"><legend><span class="fieldset-legend">' . t('Getting started') . '</span></legend>' . $intro . '</fieldset>';
+
+  $output .= '<div class="fieldset-wrapper">' . t('Help topics come from two places: modules that implement hook_help(), and modules that ship a README (README.md or README.txt). See the !help_page for details.', array('!help_page' => l(t('Help module page'), 'admin/help/help'))) . '</div>';
 
   // Recommend Markdown for nicer README rendering when not enabled.
   if (!module_exists('markdown')) {
