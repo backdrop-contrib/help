@@ -1,0 +1,6 @@
+name = Help
+description = Restores the Help pages removed from Backdrop core.
+type = module
+package = Custom
+version = 1.x-0.1-dev
+backdrop = 1.x

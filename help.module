@@ -1,0 +1,247 @@
+<?php
+/**
+ * @file
+ * Restores core-style help pages for Backdrop.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function help_menu() {
+  $items = array();
+
+  $items['admin/help'] = array(
+    'title' => 'Help',
+    'description' => 'Overview of help topics provided by enabled modules.',
+    'page callback' => 'help_main_page',
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/help/%module'] = array(
+    'title callback' => 'help_module_title',
+    'title arguments' => array(2),
+    'page callback' => 'help_module_page',
+    'page arguments' => array(2),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+
+  // Fallback wildcard for modules that are not enabled (so %module loader fails).
+  $items['admin/help/%'] = array(
+    'title callback' => 'help_module_title',
+    'title arguments' => array(2),
+    'page callback' => 'help_module_page',
+    'page arguments' => array(2),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+    'weight' => 10,
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback: list available module help topics.
+ */
+function help_main_page() {
+  $output = '<p>' . t('Help topics come from two places: modules that implement hook_help(), and modules that ship a README (README.md or README.txt). See the !help_page for details.', array('!help_page' => l(t('Help module page'), 'admin/help/help'))) . '</p>';
+
+  // Recommend Markdown for nicer README rendering when not enabled.
+  if (!module_exists('markdown')) {
+    $output .= '<p class="help-markdown-recommendation">' . t('Tip: enable the !markdown module to render README files with full formatting on help pages.', array('!markdown' => l(t('Markdown'), 'https://backdropcms.org/project/markdown', array('attributes' => array('target' => '_blank', 'rel' => 'noopener'))))) . '</p>';
+  }
+
+  $items = array();
+  $modules = system_rebuild_module_data();
+  ksort($modules);
+
+  foreach ($modules as $name => $module) {
+    // Only list enabled modules.
+    if (empty($module->status)) {
+      continue;
+    }
+
+    // Skip modules with no help content (README or hook_help).
+    if (!help_module_has_content($name)) {
+      continue;
+    }
+
+    $info = system_get_info('module', $name);
+    $title = !empty($info['name']) ? $info['name'] : $name;
+    $items[] = l($title, "admin/help/$name") . ' - ' . check_plain(strip_tags($info['description'] ?? ''));
+  }
+
+  if ($items) {
+    $output .= theme('item_list', array('items' => $items));
+  }
+  else {
+    $output .= '<p>' . t('No help topics available.') . '</p>';
+  }
+
+  return $output;
+}
+
+/**
+ * Page title callback for module help pages.
+ */
+function help_module_title($module) {
+  $info = system_get_info('module', $module);
+  return !empty($info['name']) ? $info['name'] : check_plain($module);
+}
+
+/**
+ * Page callback: display help text for a given module.
+ */
+function help_module_page($module) {
+  $output = '';
+
+  // Restore breadcrumb trail: Home > Administration > Help > Module.
+  $breadcrumb = array(
+    l(t('Home'), '<front>'),
+    l(t('Administration'), 'admin'),
+    l(t('Help'), 'admin/help'),
+  );
+  backdrop_set_breadcrumb($breadcrumb);
+
+  // If Markdown module is enabled, load its helpers for rendering.
+  $markdown_available = FALSE;
+  if (module_exists('markdown')) {
+    // Load the MarkdownExtra class for conversion.
+    module_load_include('inc.php', 'markdown', 'includes/MarkdownExtra');
+    if (class_exists('\\Michelf\\MarkdownExtra')) {
+      $markdown_available = TRUE;
+    }
+  }
+
+  // Allowed HTML tags after Markdown rendering.
+  $markdown_allowed_tags = array('a', 'em', 'strong', 'p', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr');
+
+  // First, prefer the module's hook_help implementation if present.
+  if (module_hook($module, 'help')) {
+    $help_text = module_invoke($module, 'help', "admin/help#$module");
+    if ($help_text) {
+      // If the help text is plain (no HTML), and Markdown is available, render via Markdown.
+      $is_plain = ($help_text === strip_tags($help_text));
+      if ($is_plain && $markdown_available) {
+        $rendered = \Michelf\MarkdownExtra::defaultTransform($help_text);
+        $output .= filter_xss($rendered, $markdown_allowed_tags);
+      }
+      else {
+        $output .= $help_text;
+      }
+    }
+  }
+
+  // If no hook_help output, fall back to README content.
+  if ($output === '') {
+    $module_path = backdrop_get_path('module', $module);
+    if ($module_path) {
+      $candidates = array('README.md', 'README.txt');
+      foreach ($candidates as $candidate) {
+        $filepath = $module_path . '/' . $candidate;
+        if (file_exists($filepath) && is_readable($filepath)) {
+          $readme = file_get_contents($filepath);
+          if ($readme !== FALSE && $readme !== '') {
+            // Render README: prefer Markdown if available, otherwise plain text.
+            if ($markdown_available) {
+              $rendered = \Michelf\MarkdownExtra::defaultTransform($readme);
+              // Sanitize rendered HTML to allowed tags.
+              $output .= '<div class="help-readme help-readme-markdown">' . filter_xss($rendered, $markdown_allowed_tags) . '</div>';
+            }
+            else {
+              $output .= '<div class="help-readme">' . nl2br(check_plain($readme)) . '</div>';
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return $output ? $output : MENU_NOT_FOUND;
+}
+
+/**
+ * Check if a module has any help content (README or hook_help output).
+ */
+function help_module_has_content($module) {
+  // README present?
+  $module_path = backdrop_get_path('module', $module);
+  if ($module_path) {
+    foreach (array('README.md', 'README.txt') as $candidate) {
+      $filepath = $module_path . '/' . $candidate;
+      if (file_exists($filepath) && is_readable($filepath) && filesize($filepath) > 0) {
+        return TRUE;
+      }
+    }
+  }
+
+  // hook_help output?
+  if (module_hook($module, 'help')) {
+    $text = module_invoke($module, 'help', "admin/help#$module");
+    if (!empty($text)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function help_form_system_modules_alter(&$form, &$form_state, $form_id) {
+  if (empty($form['modules']) || !is_array($form['modules'])) {
+    return;
+  }
+
+  // Add a Help link to the operations dropbutton for enabled modules that have
+  // help content.
+  foreach (element_children($form['modules']) as $package) {
+    foreach (element_children($form['modules'][$package]) as $module_name) {
+      // Skip if module is not enabled.
+      if (empty($form['modules'][$package][$module_name]['enable']['#default_value'])) {
+        continue;
+      }
+
+      // Skip if the module has no help content (hook_help or README).
+      if (!help_module_has_content($module_name)) {
+        continue;
+      }
+
+      // Prepare existing links, if any.
+      $links = array();
+      if (isset($form['modules'][$package][$module_name]['links']['#links']) && is_array($form['modules'][$package][$module_name]['links']['#links'])) {
+        $links = $form['modules'][$package][$module_name]['links']['#links'];
+      }
+
+      // Build the Help link.
+      $help_link = array(
+        'title' => t('Help'),
+        'href' => "admin/help/$module_name",
+        'attributes' => array(
+          'class' => array('module-link', 'module-link-help'),
+          'title' => t('View help and README for this module'),
+        ),
+      );
+
+      // Insert Help after Configure (if present) and before Permissions.
+      $ordered = array();
+      if (isset($links['configure'])) {
+        $ordered['configure'] = $links['configure'];
+        unset($links['configure']);
+      }
+      $ordered['help'] = $help_link;
+      if (isset($links['permissions'])) {
+        $ordered['permissions'] = $links['permissions'];
+        unset($links['permissions']);
+      }
+      // Append any remaining custom links.
+      $ordered += $links;
+
+      $form['modules'][$package][$module_name]['links']['#type'] = 'dropbutton';
+      $form['modules'][$package][$module_name]['links']['#links'] = $ordered;
+    }
+  }
+}
